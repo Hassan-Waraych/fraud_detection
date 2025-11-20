@@ -1,2 +1,14 @@
 # ignore venv
-venv
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.logs/
+logs/
+data/
+*.csv
+
+.env
+.idea/
