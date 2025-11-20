@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
-
+from datetime import datetime
+import json
 
 import joblib
 import pandas as pd
@@ -30,8 +31,11 @@ class PredictionResponse(BaseModel):
     action: Literal["allow", "review", "block"]
 
 
-# Loading modeel
+# paths
 MODEL_PATH = Path("fraud/models/model.pkl")
+LOG_PATH = Path("logs/predictions.csv")
+
+#Loading model
 print(f"Loading model from {MODEL_PATH}")
 model = joblib.load(MODEL_PATH)
 app = FastAPI(title="Fraud Detection API", version="0.1.0")
@@ -52,6 +56,35 @@ def decide_action(fraud_score: float) -> str:
     else:
         return "block"
 
+def log_prediction(tx: Transaction, fraud_score: float, is_fraud: bool, action: str):
+    # Add prediction info to logs/predictions.csv
+    LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    row = {
+        "timestamp": datetime.utcnow().isoformat(),
+        "transaction_id": tx.transaction_id,
+        "user_id": tx.user_id,
+        "amount": tx.amount,
+        "currency": tx.currency,
+        "country": tx.country,
+        "merchant_category": tx.merchant_category,
+        "time_of_day": tx.time_of_day,
+        "device_trust_score": tx.device_trust_score,
+        "num_tx_last_24h": tx.num_tx_last_24h,
+        "avg_amount_last_24h": tx.avg_amount_last_24h,
+        "fraud_score": fraud_score,
+        "is_fraud": int(is_fraud),
+        "action": action,
+        "raw_request": json.dumps(tx.model_dump()),
+    }
+
+    # create file w/ header
+    file_exists = LOG_PATH.exists()
+    import csv
+    with LOG_PATH.open("a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=row.keys())
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
 # Routes
 
 @app.get("/health")
@@ -84,6 +117,9 @@ def predict_fraud(tx: Transaction):
     fraud_score = float(proba)
     is_fraud = fraud_score > 0.5
     action = decide_action(fraud_score)
+
+    #Log prediction
+    log_prediction(tx, fraud_score, is_fraud, action)
 
     return PredictionResponse(
             transaction_id = tx.transaction_id,
